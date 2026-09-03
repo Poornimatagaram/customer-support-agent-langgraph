@@ -1,0 +1,7 @@
+Account Policy
+
+Customers may request account deletion at any time by contacting support. Account deletion is permanent and removes all order history, saved payment methods, and preferences. Accounts flagged for suspicious activity are temporarily restricted from making purchases until identity verification is completed.
+
+Password resets can be self-served through the "Forgot Password" link. If a customer cannot access the email associated with their account, they must verify their identity through order history or billing details before support can assist with account recovery.
+
+Accounts with a status of "flagged" require manual review by a support specialist before any refund, cancellation, or account change can be processed.
