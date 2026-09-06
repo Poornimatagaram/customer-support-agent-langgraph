@@ -8,7 +8,8 @@ If the email is HIGH risk: the graph will pause at human_approval --
 this script will print the interrupt payload and exit. Use
 resume_agent.py (built next) to supply the human decision and finish.
 """
-
+from dotenv import load_dotenv
+load_dotenv()
 import sys
 import uuid
 
