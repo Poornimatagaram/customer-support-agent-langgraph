@@ -20,7 +20,7 @@ from nodes.state import AgentState
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-MODEL_NAME = "gemini-3.6-flash"
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 
 
 class ProblemUnderstanding(BaseModel):
