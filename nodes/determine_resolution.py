@@ -1,13 +1,8 @@
 """
 Node: determine_resolution
 
-The core decision-making step. Combines:
-- issue_summary (from understand_problem)
-- customer_data (from search_crm)
-- retrieved_docs (from search_knowledge_base -- the RAG context)
-
-...and asks the LLM to decide what action to take, grounded in real
-policy text and real customer data. This is the "Generation" half of RAG.
+The core decision-making step. Combines issue_summary, customer_data,
+and retrieved_docs (RAG context) to decide what action to take.
 """
 
 import os
@@ -16,19 +11,31 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from pydantic import BaseModel
 from typing import Literal
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
 
 from nodes.state import AgentState
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 
 class ResolutionDecision(BaseModel):
     action: Literal["full_refund", "partial_refund", "replace_item", "answer_question", "escalate_to_human"]
-    justification: str      # which policy/fact this decision is based on -- for traceability
-    refund_amount: float    # 0 if no refund applies
+    justification: str
+    refund_amount: float
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=20),
+    retry=retry_if_exception_type((ResourceExhausted, ServiceUnavailable)),
+)
+def _call_gemini(prompt: str):
+    model = genai.GenerativeModel(MODEL_NAME)
+    return model.generate_content(prompt)
 
 
 def determine_resolution(state: AgentState) -> AgentState:
@@ -36,9 +43,6 @@ def determine_resolution(state: AgentState) -> AgentState:
     customer_data = state["customer_data"]
     retrieved_docs = state["retrieved_docs"]
 
-    # Join the retrieved chunks into one block of text for the prompt.
-    # This is the "augmentation" step of RAG -- inserting retrieved
-    # context directly into what the LLM sees.
     policy_context = "\n\n".join(retrieved_docs)
 
     prompt = f"""You are a customer support decision-making assistant.
@@ -63,21 +67,25 @@ Respond ONLY with valid JSON in this exact shape, no other text:
 }}
 """
 
-    model = genai.GenerativeModel(MODEL_NAME)
-    response = model.generate_content(prompt)
+    try:
+        response = _call_gemini(prompt)
+        raw_text = response.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        parsed = ResolutionDecision.model_validate(json.loads(raw_text))
 
-    raw_text = response.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        resolution_plan = (
+            f"Action: {parsed.action} | "
+            f"Amount: ${parsed.refund_amount} | "
+            f"Justification: {parsed.justification}"
+        )
 
-    parsed = ResolutionDecision.model_validate(json.loads(raw_text))
+        print(f"[determine_resolution] {resolution_plan}")
 
-    resolution_plan = (
-        f"Action: {parsed.action} | "
-        f"Amount: ${parsed.refund_amount} | "
-        f"Justification: {parsed.justification}"
-    )
+        return {
+            "resolution_plan": resolution_plan,
+        }
 
-    print(f"[determine_resolution] {resolution_plan}")
-
-    return {
-        "resolution_plan": resolution_plan,
-    }
+    except Exception as e:
+        print(f"[determine_resolution] ERROR after retries: {e}. Escalating to human for safety.")
+        return {
+            "resolution_plan": "Action: escalate_to_human | Amount: $0.0 | Justification: Automated decision failed, routing to human for manual review.",
+        }
