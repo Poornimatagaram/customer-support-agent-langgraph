@@ -1,37 +1,35 @@
 """
 Node: search_crm
 
-Looks up the customer's record in our mock CRM database (SQLite),
+Looks up the customer's record in our Postgres CRM database,
 using the customer_id already present in state.
-
-Unlike classify_email and understand_problem, this node does NOT call
-the LLM at all -- it's a pure "tool" node: it just fetches real data.
 """
 
-import sqlite3
+import os
+from dotenv import load_dotenv
+import psycopg2
 
 from nodes.state import AgentState
+
+load_dotenv()
 
 
 def search_crm(state: AgentState) -> AgentState:
     customer_id = state["customer_id"]
 
-    # Connect to the same database file seed_crm.py created
-    conn = sqlite3.connect("data/crm.db")
+    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM customers WHERE customer_id = ?", (customer_id,))
+    cursor.execute("SELECT * FROM customers WHERE customer_id = %s", (customer_id,))
     row = cursor.fetchone()
 
+    cursor.close()
     conn.close()
 
     if row is None:
-        # Customer not found -- still need to return SOMETHING sensible,
-        # not crash. Downstream nodes should handle this gracefully.
         print(f"[search_crm] No customer found for id={customer_id}")
         customer_data = {"found": False}
     else:
-        # row is a tuple in column order: matches our CREATE TABLE column order
         customer_data = {
             "found": True,
             "customer_id": row[0],

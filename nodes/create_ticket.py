@@ -1,17 +1,17 @@
 """
 Node: create_ticket
 
-Logs a permanent ticket record into our SQLite database, capturing
-the customer's issue and the agent's proposed resolution.
-
-Like search_crm, this is a pure "tool" node -- no LLM call, just a
-database write.
+Logs a permanent ticket record into our Postgres database.
 """
 
-import sqlite3
+import os
 import uuid
+from dotenv import load_dotenv
+import psycopg2
 
 from nodes.state import AgentState
+
+load_dotenv()
 
 
 def create_ticket(state: AgentState) -> AgentState:
@@ -20,20 +20,18 @@ def create_ticket(state: AgentState) -> AgentState:
     issue_summary = state.get("issue_summary")
     resolution_plan = state.get("resolution_plan")
 
-    # Generate a unique ticket ID. uuid4() creates a random, essentially
-    # guaranteed-unique identifier -- standard practice for IDs you
-    # don't want to accidentally collide/duplicate.
     ticket_id = f"TCKT-{uuid.uuid4().hex[:8].upper()}"
 
-    conn = sqlite3.connect("data/crm.db")
+    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
     cursor = conn.cursor()
 
     cursor.execute("""
         INSERT INTO tickets (ticket_id, customer_id, category, issue_summary, resolution_plan)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s)
     """, (ticket_id, customer_id, category, issue_summary, resolution_plan))
 
     conn.commit()
+    cursor.close()
     conn.close()
 
     print(f"[create_ticket] Created ticket {ticket_id} for customer {customer_id}")
