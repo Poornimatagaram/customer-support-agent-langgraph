@@ -1,27 +1,25 @@
 """
-build_knowledge_base.py (Postgres/pgvector version)
+build_knowledge_base.py
 
 Reads all .txt policy documents, splits them into paragraph-level
-chunks, generates embeddings explicitly using sentence-transformers,
-and stores everything in the policy_chunks table in Postgres.
+chunks, generates embeddings via the Gemini API, and stores
+everything in the policy_chunks table in Postgres.
 """
-
+import numpy as np
 import os
 import glob
 from dotenv import load_dotenv
 import psycopg2
 from pgvector.psycopg2 import register_vector
-from sentence_transformers import SentenceTransformer
+
+from embeddings_util import get_embedding
 
 load_dotenv()
 
 KNOWLEDGE_BASE_DIR = "data/knowledge_base"
 
-print("Loading embedding model (this may take a moment)...")
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-
-def chunk_document(text: str) -> list[str]:
+def chunk_document(text: str) -> list:
     raw_chunks = text.split("\n\n")
     chunks = [c.strip() for c in raw_chunks if c.strip()]
     return chunks
@@ -45,7 +43,7 @@ def build_knowledge_base():
         chunks = chunk_document(text)
 
         for chunk in chunks:
-            embedding = embedding_model.encode(chunk)
+            embedding = np.array(get_embedding(chunk, task_type="retrieval_document"))
 
             cursor.execute(
                 "INSERT INTO policy_chunks (source, chunk_text, embedding) VALUES (%s, %s, %s)",

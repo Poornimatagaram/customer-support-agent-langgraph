@@ -1,39 +1,32 @@
 """
-Node: search_knowledge_base (Postgres/pgvector version)
+Node: search_knowledge_base
 
-Embeds the issue_summary, then uses pgvector's cosine distance
-operator directly in SQL to find the most similar policy chunks.
+Embeds the issue_summary via the Gemini API, then uses pgvector's
+cosine distance operator to find the most similar policy chunks.
 """
-
+import numpy as np
 import os
 from dotenv import load_dotenv
 import psycopg2
 from pgvector.psycopg2 import register_vector
-from sentence_transformers import SentenceTransformer
 
 from nodes.state import AgentState
+from embeddings_util import get_embedding
 
 load_dotenv()
 
 TOP_K = 3
 
-# Loaded once at import time, same reasoning as in build_knowledge_base.py
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-
 
 def search_knowledge_base(state: AgentState) -> AgentState:
     issue_summary = state["issue_summary"]
 
-    query_embedding = embedding_model.encode(issue_summary)
+    query_embedding = np.array(get_embedding(issue_summary, task_type="retrieval_query"))
 
     conn = psycopg2.connect(os.getenv("DATABASE_URL"))
     register_vector(conn)
     cursor = conn.cursor()
 
-    # The <=> operator is pgvector's COSINE DISTANCE operator --
-    # this is the literal SQL equivalent of what ChromaDB was doing
-    # internally. ORDER BY distance ascending + LIMIT TOP_K gives us
-    # the K most similar chunks, exactly like collection.query() did.
     cursor.execute("""
         SELECT chunk_text, source, embedding <=> %s AS distance
         FROM policy_chunks
